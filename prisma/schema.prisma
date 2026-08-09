@@ -191,6 +191,7 @@ model Song {
   mediaLink String?
 
   classes ClassSong[]
+  videos  Video[]
 }
 
 model ClassSong {
