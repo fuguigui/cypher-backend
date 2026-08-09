@@ -52,19 +52,37 @@ async function runScrape() {
       // on Class. Common right after a studio is approved but before its
       // first branch is. Skip quietly; next run picks it up once one exists.
       skippedNoLocation++;
-      await prisma.studio.update({ where: { id: studio.id }, data: { lastScrapedAt: new Date() } });
+      await prisma.studio.update({
+        where: { id: studio.id },
+        data: {
+          lastScrapedAt: new Date(),
+          lastScrapeStatus: "no_location",
+          lastScrapeClassCount: 0,
+          lastScrapeNote: "Studio has no approved Location yet, so scraped classes have nowhere to attach.",
+        },
+      });
       continue;
     }
 
-    let found;
+    let found, method, note;
     try {
-      found = await scrapeStudioSchedule({ id: studio.id, scheduleUrl: studio.scheduleUrl });
+      ({ items: found, method, note } = await scrapeStudioSchedule({ id: studio.id, scheduleUrl: studio.scheduleUrl }));
     } catch (err) {
       console.error(`[scrape] ${studio.name}: ${err.message}`);
       failed++;
-      await prisma.studio.update({ where: { id: studio.id }, data: { lastScrapedAt: new Date() } });
+      await prisma.studio.update({
+        where: { id: studio.id },
+        data: {
+          lastScrapedAt: new Date(),
+          lastScrapeStatus: "error",
+          lastScrapeClassCount: 0,
+          lastScrapeNote: err.message.slice(0, 500),
+        },
+      });
       continue;
     }
+
+    if (method === "error") failed++;
 
     for (const item of found) {
       const existing = await prisma.class.findUnique({
@@ -118,7 +136,15 @@ async function runScrape() {
       }
     }
 
-    await prisma.studio.update({ where: { id: studio.id }, data: { lastScrapedAt: new Date() } });
+    await prisma.studio.update({
+      where: { id: studio.id },
+      data: {
+        lastScrapedAt: new Date(),
+        lastScrapeStatus: method === "none" ? "no_events" : method,
+        lastScrapeClassCount: found.length,
+        lastScrapeNote: note,
+      },
+    });
   }
 
   const summary = { studios: studios.length, created, updated, skippedLocked, skippedNoLocation, failed };

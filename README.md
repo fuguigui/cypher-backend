@@ -59,6 +59,9 @@ GET  /admin/queue                  everything pending, newest first
 POST /admin/:type/:id/approve      type ∈ Studio | Location | Teacher | Class
 POST /admin/:type/:id/reject       { feedback? }
 GET  /admin/videos                 live videos, for the block workflow
+GET  /admin/studios                every studio regardless of status, full
+                                    details + last-scrape outcome (for the
+                                    admin "All studios" panel)
 ```
 
 ## Daily class-schedule scraping
@@ -82,20 +85,27 @@ upserts the results as Class rows, matched across runs by a stable
 
 ## What's stubbed vs. real
 
-- **The schedule scraper has two paths**, in `src/lib/scheduleScraper.js`.
-  The **.ics calendar feed** path is genuinely reliable — it's a real spec
-  (RFC 5545), parsed with the well-established `node-ical` package, with
-  weekly/etc. recurring classes correctly expanded into individual future
-  occurrences. Almost every booking platform (Bookwhen, Mindbody, Acuity,
-  Calendly...) publishes one of these alongside the human-facing schedule
-  page; `submit.html` nudges studio owners to paste that link instead of
-  the plain webpage. The **generic HTML fallback** (for studios without a
-  feed) is the part that's still a stopgap — every studio formats a plain
-  page differently, so there's no generic parser that reliably handles all
-  of them. It fails silently (`[]`, not a crash) rather than guessing
-  wrong. The module's doc comment has the real fix for that path: fetch →
-  strip to text → LLM-based structured extraction against a strict schema,
-  validated before any DB write. That swap only touches one function.
+- **The schedule scraper is an extractor registry**, in
+  `src/lib/scheduleScraper.js` — different studio platforms need genuinely
+  different extraction strategies, tried in order per studio:
+  1. **.ics calendar feed** — genuinely reliable, real spec (RFC 5545) via
+     `node-ical`, recurring classes expanded into future occurrences.
+     Almost every booking platform (Bookwhen, Mindbody, Acuity, Calendly...)
+     publishes one; `submit.html` nudges studio owners toward it.
+  2. **Bookwhen HTML table** — a dedicated `cheerio`-based structural parser
+     for Bookwhen's plain schedule page, which server-renders its class
+     table even without JS. Handles the common case of a studio owner
+     pasting their public Bookwhen page instead of finding their .ics feed.
+  3. **Generic HTML fallback** — best-effort for anything else; detects and
+     flags likely JS-rendered single-page apps instead of guessing wrong.
+  `POST /admin/scrape/run` and the daily cron write `lastScrapeStatus` /
+  `lastScrapeClassCount` / `lastScrapeNote` onto each Studio so the admin
+  panel's "All studios" section can flag zero-result or failing studios.
+  Not implemented: Instagram-image schedules (needs OCR/vision) and
+  client-rendered custom sites (needs a headless browser) — both are
+  reported as `unsupported` rather than silently returning nothing. See
+  the doc comment in `scheduleScraper.js` for how to add a new
+  platform-specific extractor.
 - **Geocoding** (`src/lib/geocode.js`) and **price detection**
   (`src/lib/priceDetect.js`) have working call signatures but need a real
   provider key / more robust scraping before production.

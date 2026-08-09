@@ -82,4 +82,20 @@ router.post("/scrape/run", async (req, res, next) => {
   }
 });
 
+// GET /admin/studios — every studio regardless of moderation status, with
+// full details and last-scrape outcome, for the admin "All Studios" panel.
+// (The public GET /studios only returns approved ones, or the requesting
+// user's own with ?mine=1 — this is the admin-only "see everything" view.)
+router.get("/studios", async (req, res) => {
+  const studios = await prisma.studio.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      submittedBy: { select: { id: true, name: true, email: true } },
+      locations: true,
+      _count: { select: { classes: true } },
+    },
+  });
+  res.json(studios);
+});
+
 module.exports = router;

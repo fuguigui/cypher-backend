@@ -80,6 +80,13 @@ model Studio {
                                 // level so existing rows never become invalid). The daily
                                 // scraper (src/scripts/runScrape.js) reads this URL.
   lastScrapedAt DateTime?      // last time the scraper attempted this studio, success or not
+  // Outcome of that attempt, surfaced in the admin scrape-monitoring panel so
+  // a studio silently returning 0 classes doesn't go unnoticed. Written by
+  // src/scripts/runScrape.js every run.
+  lastScrapeStatus     String?  // which extractor succeeded ("ics" | "bookwhen_html" | "generic_html"),
+                                 // or why it didn't ("no_events" | "unsupported" | "error" | "no_location")
+  lastScrapeClassCount Int?     // how many classes the last run found (0 is meaningful, not "unknown")
+  lastScrapeNote       String?  // human-readable detail, esp. for non-"ok" statuses
   status      ModerationStatus @default(pending)
   createdAt   DateTime         @default(now())
   approvedAt  DateTime?
