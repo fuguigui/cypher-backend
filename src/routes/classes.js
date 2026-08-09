@@ -39,8 +39,11 @@ router.post("/", requireAuth, async (req, res) => {
     datetime, duration, price, currency, bookingLink, level, songIds = [],
   } = req.body || {};
 
-  if (!studioId || !locationId || !title || !danceStyle || !datetime || !bookingLink || !level) {
-    return res.status(400).json({ error: "studioId, locationId, title, danceStyle, datetime, bookingLink, and level are required." });
+  // locationId is optional — location is a per-class detail, not a
+  // precondition for a class to exist. Omit it (or pick "location TBD" on
+  // the submit form) if you're not sure yet; it can be filled in later.
+  if (!studioId || !title || !danceStyle || !datetime || !bookingLink || !level) {
+    return res.status(400).json({ error: "studioId, title, danceStyle, datetime, bookingLink, and level are required." });
   }
 
   let finalPrice = price ?? null;
@@ -56,7 +59,7 @@ router.post("/", requireAuth, async (req, res) => {
 
   const cls = await prisma.class.create({
     data: {
-      studioId, locationId, teacherId: teacherId || null, title, danceStyle,
+      studioId, locationId: locationId || null, teacherId: teacherId || null, title, danceStyle,
       datetime: new Date(datetime), duration: duration || 60,
       price: finalPrice, currency: finalPrice != null ? (currency || "USD") : null,
       priceSource, bookingLink, level,

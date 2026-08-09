@@ -43,26 +43,15 @@ async function runScrape() {
 
   console.log(`[scrape] ${studios.length} approved studio(s) with a schedule link.`);
 
-  let created = 0, updated = 0, skippedLocked = 0, skippedNoLocation = 0, failed = 0;
+  let created = 0, updated = 0, skippedLocked = 0, failed = 0;
 
   for (const studio of studios) {
+    // A studio may not have an approved Location registered yet — that's
+    // fine and no longer blocks scraping. Location is a per-class detail,
+    // not a studio-level precondition (see the note on Class.locationId in
+    // schema.prisma); classes just get created with locationId: null and
+    // show as "location TBD" until a human fills it in.
     const defaultLocation = studio.locations[0];
-    if (!defaultLocation) {
-      // Nowhere to attach a scraped class yet — Location is a required field
-      // on Class. Common right after a studio is approved but before its
-      // first branch is. Skip quietly; next run picks it up once one exists.
-      skippedNoLocation++;
-      await prisma.studio.update({
-        where: { id: studio.id },
-        data: {
-          lastScrapedAt: new Date(),
-          lastScrapeStatus: "no_location",
-          lastScrapeClassCount: 0,
-          lastScrapeNote: "Studio has no approved Location yet, so scraped classes have nowhere to attach.",
-        },
-      });
-      continue;
-    }
 
     let found, method, note;
     try {
@@ -110,7 +99,7 @@ async function runScrape() {
         await prisma.class.create({
           data: {
             studioId: studio.id,
-            locationId: defaultLocation.id,
+            locationId: defaultLocation ? defaultLocation.id : null,
             submittedById: bot.id,
             source: "scraped",
             locked: false,
@@ -147,7 +136,7 @@ async function runScrape() {
     });
   }
 
-  const summary = { studios: studios.length, created, updated, skippedLocked, skippedNoLocation, failed };
+  const summary = { studios: studios.length, created, updated, skippedLocked, failed };
   console.log(`[scrape] done. ${JSON.stringify(summary)}`);
   return summary;
 }

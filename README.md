@@ -38,7 +38,7 @@ PATCH /auth/me        { name?, city? }  (auth)
 | `GET/POST /studios` | Public list is `approved` only; `?mine=1` (+auth) shows your own pending/rejected too. Studio can have multiple Locations. |
 | `GET /studios/popular?city=&limit=` | Ranks approved studios with a location in `city` by Instagram followers — powers the "suggested for new users" group. |
 | `POST/GET /locations` | `city` is validated against the fixed enum in `src/lib/cities.js`. Address is geocoded server-side via `src/lib/geocode.js` (plug in a real provider). |
-| `GET/POST /classes`, `PATCH /classes/:id` | Filterable by style, studio, teacher, city, level, date range, price range. Price is optional — auto-detected from the booking link via `src/lib/priceDetect.js` if left blank; stays `null` (never a fake `$0`) if detection fails. `PATCH` (owner or admin) always sets `locked: true`, which is what keeps the daily scraper from overwriting a manual correction. |
+| `GET/POST /classes`, `PATCH /classes/:id` | Filterable by style, studio, teacher, city, level, date range, price range. Price is optional — auto-detected from the booking link via `src/lib/priceDetect.js` if left blank; stays `null` (never a fake `$0`) if detection fails. Location is also optional (`locationId`) — it's a per-class detail (a studio's classes can be at different venues), not a precondition for the class to exist; the frontend shows it as "Location TBD" until set. `PATCH` (owner or admin) always sets `locked: true`, which is what keeps the daily scraper from overwriting a manual correction. |
 | `GET /songs/leaderboard` | Ranks songs by how many approved classes use them, filterable by city/date range. |
 | `PUT /reviews/studios/:studioId` | Upsert — one review per user per studio, edit-in-place. Recomputes the studio's `avgRating`. |
 | `POST /videos` | Publishes immediately (`status: "live"`) — no moderation queue, unlike everything else. 50 MiB upload cap. |
@@ -75,6 +75,10 @@ upserts the results as Class rows, matched across runs by a stable
 
 - **Manual corrections always win.** Editing a class (`PATCH /classes/:id`)
   sets `locked: true`, and the scraper skips locked rows forever after.
+- **No Location required to scrape.** A studio doesn't need an approved
+  Location before its schedule gets scraped — `Class.locationId` is
+  nullable, so scraped classes land with `locationId: null` ("Location
+  TBD") and a human can attach the right venue later per class.
 - **Deployment**: runs as a separate Railway service on a daily cron
   schedule (`node src/scripts/runScrape.js`, exits after one pass) rather
   than inside the API's request/response cycle — see `DEPLOYMENT-NOTES.md`
