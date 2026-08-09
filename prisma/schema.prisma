@@ -36,6 +36,11 @@ enum PriceSource {
   auto_detected
 }
 
+enum ClassSource {
+  manual   // created directly through Submit a Listing
+  scraped  // created by the daily schedule scraper (see src/scripts/runScrape.js)
+}
+
 model User {
   id          String   @id @default(cuid())
   name        String
@@ -70,6 +75,11 @@ model Studio {
   instagramLink      String?
   instagramFollowers Int?      // captured at submission/refresh time when a link is provided
   avgRating   Float?           // computed from Review rows; denormalized for read speed
+  scheduleUrl String?          // studio's own class-schedule page; required at submission
+                                // (validated in routes/studios.js, not enforced at the DB
+                                // level so existing rows never become invalid). The daily
+                                // scraper (src/scripts/runScrape.js) reads this URL.
+  lastScrapedAt DateTime?      // last time the scraper attempted this studio, success or not
   status      ModerationStatus @default(pending)
   createdAt   DateTime         @default(now())
   approvedAt  DateTime?
@@ -161,6 +171,16 @@ model Class {
   bookingLink String
   level       String           // Beginner | Intermediate | Advanced | All Levels
   status      ModerationStatus @default(pending)
+  source      ClassSource      @default(manual)
+  // Once true, the scraper leaves this row alone forever — set whenever a human
+  // (owner or admin) creates or edits a class, so scraped data never clobbers a
+  // manual correction. Scraped rows start unlocked and stay that way until edited.
+  locked        Boolean   @default(false)
+  // Stable per-studio key the scraper uses to recognize "this is the same class
+  // I saw yesterday" across runs, so re-scraping updates rows instead of
+  // duplicating them. Null for manually-submitted classes.
+  externalId    String?
+  lastScrapedAt DateTime?
   createdAt   DateTime         @default(now())
   approvedAt  DateTime?
 
@@ -180,6 +200,7 @@ model Class {
   videos Video[]
   likes  Like[]
 
+  @@unique([studioId, externalId])
   @@index([datetime])
   @@index([studioId, status])
 }

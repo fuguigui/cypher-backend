@@ -38,7 +38,7 @@ PATCH /auth/me        { name?, city? }  (auth)
 | `GET/POST /studios` | Public list is `approved` only; `?mine=1` (+auth) shows your own pending/rejected too. Studio can have multiple Locations. |
 | `GET /studios/popular?city=&limit=` | Ranks approved studios with a location in `city` by Instagram followers — powers the "suggested for new users" group. |
 | `POST/GET /locations` | `city` is validated against the fixed enum in `src/lib/cities.js`. Address is geocoded server-side via `src/lib/geocode.js` (plug in a real provider). |
-| `GET/POST /classes` | Filterable by style, studio, teacher, city, level, date range, price range. Price is optional — auto-detected from the booking link via `src/lib/priceDetect.js` if left blank; stays `null` (never a fake `$0`) if detection fails. |
+| `GET/POST /classes`, `PATCH /classes/:id` | Filterable by style, studio, teacher, city, level, date range, price range. Price is optional — auto-detected from the booking link via `src/lib/priceDetect.js` if left blank; stays `null` (never a fake `$0`) if detection fails. `PATCH` (owner or admin) always sets `locked: true`, which is what keeps the daily scraper from overwriting a manual correction. |
 | `GET /songs/leaderboard` | Ranks songs by how many approved classes use them, filterable by city/date range. |
 | `PUT /reviews/studios/:studioId` | Upsert — one review per user per studio, edit-in-place. Recomputes the studio's `avgRating`. |
 | `POST /videos` | Publishes immediately (`status: "live"`) — no moderation queue, unlike everything else. 50 MiB upload cap. |
@@ -61,8 +61,35 @@ POST /admin/:type/:id/reject       { feedback? }
 GET  /admin/videos                 live videos, for the block workflow
 ```
 
+## Daily class-schedule scraping
+
+Every Studio submission requires a `scheduleUrl` — a link to the studio's own
+class schedule page. `src/scripts/runScrape.js` is a standalone script (not
+part of the Express app) that loops every approved studio with a
+`scheduleUrl`, parses its schedule via `src/lib/scheduleScraper.js`, and
+upserts the results as Class rows, matched across runs by a stable
+`(studioId, externalId)` key so re-scraping updates instead of duplicating.
+
+- **Manual corrections always win.** Editing a class (`PATCH /classes/:id`)
+  sets `locked: true`, and the scraper skips locked rows forever after.
+- **Deployment**: runs as a separate Railway service on a daily cron
+  schedule (`node src/scripts/runScrape.js`, exits after one pass) rather
+  than inside the API's request/response cycle — see `DEPLOYMENT-NOTES.md`
+  in the project root.
+- **Manual trigger**: `POST /admin/scrape/run` (admin-only) runs one pass
+  immediately, for testing a studio's `scheduleUrl` without waiting a day.
+  The admin page has a "Run now" button wired to this.
+
 ## What's stubbed vs. real
 
+- **The schedule scraper itself** (`src/lib/scheduleScraper.js`) is a naive
+  fallback parser, not a real solution — every studio formats their
+  schedule page differently, so there's no generic parser that reliably
+  handles all of them. It'll work on simple static pages and fail silently
+  (returns `[]`, doesn't crash) on most real sites. The module's doc comment
+  has the actual production path: fetch → strip to text → LLM-based
+  structured extraction against a strict schema, validated before any DB
+  write. That swap only touches this one file.
 - **Geocoding** (`src/lib/geocode.js`) and **price detection**
   (`src/lib/priceDetect.js`) have working call signatures but need a real
   provider key / more robust scraping before production.

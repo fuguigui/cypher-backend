@@ -50,14 +50,17 @@ router.get("/:id", async (req, res) => {
 });
 
 // POST /studios — new submission. Always starts pending; only an admin
-// approval flips it to approved (see routes/admin.js).
+// approval flips it to approved (see routes/admin.js). scheduleUrl is
+// required: it's what src/scripts/runScrape.js reads daily to pull this
+// studio's classes automatically once approved.
 router.post("/", requireAuth, async (req, res) => {
-  const { name, description, website, logoUrl, instagramLink, instagramFollowers } = req.body || {};
+  const { name, description, website, logoUrl, instagramLink, instagramFollowers, scheduleUrl } = req.body || {};
   if (!name) return res.status(400).json({ error: "name is required." });
+  if (!scheduleUrl) return res.status(400).json({ error: "scheduleUrl (a link to the studio's class schedule) is required." });
 
   const studio = await prisma.studio.create({
     data: {
-      name, description, website, logoUrl, instagramLink, instagramFollowers,
+      name, description, website, logoUrl, instagramLink, instagramFollowers, scheduleUrl,
       status: "pending",
       submittedById: req.user.id,
     },
@@ -78,7 +81,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
   const isAdmin = req.user.role === "admin";
   if (!isOwner && !isAdmin) return res.status(403).json({ error: "Not allowed to edit this studio." });
 
-  const { name, description, website, logoUrl, instagramLink, instagramFollowers } = req.body || {};
+  const { name, description, website, logoUrl, instagramLink, instagramFollowers, scheduleUrl } = req.body || {};
   const updated = await prisma.studio.update({
     where: { id: req.params.id },
     data: {
@@ -88,6 +91,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
       ...(logoUrl !== undefined ? { logoUrl } : {}),
       ...(instagramLink !== undefined ? { instagramLink } : {}),
       ...(instagramFollowers !== undefined ? { instagramFollowers } : {}),
+      ...(scheduleUrl !== undefined ? { scheduleUrl } : {}),
       // Owner edits of an approved studio go back to pending; admin edits don't.
       ...(isOwner && !isAdmin && studio.status === "approved" ? { status: "pending" } : {}),
     },

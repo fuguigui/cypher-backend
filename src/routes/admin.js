@@ -1,6 +1,7 @@
 const express = require("express");
 const prisma = require("../lib/prisma");
 const { requireAdmin } = require("../middleware/auth");
+const { runScrape } = require("../scripts/runScrape");
 
 const router = express.Router();
 
@@ -67,6 +68,18 @@ router.get("/videos", async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
   res.json(videos);
+});
+
+// POST /admin/scrape/run — trigger the daily schedule scraper on demand
+// (the real trigger is the Railway cron service, see DEPLOYMENT-NOTES.md;
+// this is for testing a studio's scheduleUrl without waiting for it).
+router.post("/scrape/run", async (req, res, next) => {
+  try {
+    const summary = await runScrape();
+    res.json(summary);
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;

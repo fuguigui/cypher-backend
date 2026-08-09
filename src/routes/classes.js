@@ -61,11 +61,53 @@ router.post("/", requireAuth, async (req, res) => {
       price: finalPrice, currency: finalPrice != null ? (currency || "USD") : null,
       priceSource, bookingLink, level,
       status: "pending",
+      source: "manual",
+      locked: true, // human-submitted from the start — the scraper must never touch it
       submittedById: req.user.id,
       songs: { create: songIds.map((songId) => ({ song: { connect: { id: songId } } })) },
     },
   });
   res.status(201).json(cls);
+});
+
+// PATCH /classes/:id — the owner (or an admin) can correct a class, whether
+// it was manually submitted or scraped. Editing always sets `locked: true`,
+// which is what tells the daily scraper (src/scripts/runScrape.js) to leave
+// this row alone on every future run — a manual correction should never get
+// silently overwritten by the next scrape. Same re-review rule as studios:
+// a non-admin owner's edit to an already-approved class reverts it to
+// pending until an admin re-approves it; admin edits don't.
+router.patch("/:id", requireAuth, async (req, res) => {
+  const existing = await prisma.class.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: "Not found." });
+
+  const isOwner = existing.submittedById === req.user.id;
+  const isAdmin = req.user.role === "admin";
+  if (!isOwner && !isAdmin) return res.status(403).json({ error: "Not allowed to edit this class." });
+
+  const {
+    title, danceStyle, datetime, duration, price, currency,
+    bookingLink, level, teacherId, locationId,
+  } = req.body || {};
+
+  const updated = await prisma.class.update({
+    where: { id: req.params.id },
+    data: {
+      ...(title !== undefined ? { title } : {}),
+      ...(danceStyle !== undefined ? { danceStyle } : {}),
+      ...(datetime !== undefined ? { datetime: new Date(datetime) } : {}),
+      ...(duration !== undefined ? { duration } : {}),
+      ...(price !== undefined ? { price, priceSource: price == null ? null : "manual" } : {}),
+      ...(currency !== undefined ? { currency } : {}),
+      ...(bookingLink !== undefined ? { bookingLink } : {}),
+      ...(level !== undefined ? { level } : {}),
+      ...(teacherId !== undefined ? { teacherId: teacherId || null } : {}),
+      ...(locationId !== undefined ? { locationId } : {}),
+      locked: true,
+      ...(isOwner && !isAdmin && existing.status === "approved" ? { status: "pending" } : {}),
+    },
+  });
+  res.json(updated);
 });
 
 module.exports = router;
