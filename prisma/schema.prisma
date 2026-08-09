@@ -1,0 +1,286 @@
+// Prisma schema — implements 01-data-model-spec.md.
+// Postgres in production; SQLite works fine for local dev (see .env.example).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  submitter
+  admin
+}
+
+enum ModerationStatus {
+  pending
+  approved
+  rejected
+}
+
+enum VideoStatus {
+  live
+  blocked
+}
+
+enum VideoSource {
+  instagram_embed
+  user_upload
+}
+
+enum PriceSource {
+  manual
+  auto_detected
+}
+
+model User {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  passwordHash String? // null for OAuth-only accounts
+  role        Role     @default(submitter)
+  city        String?  // default city, used for map centering + popularity fallback
+  createdAt   DateTime @default(now())
+
+  studios     Studio[]   @relation("StudioSubmitter")
+  locations   Location[] @relation("LocationSubmitter")
+  teachers    Teacher[]  @relation("TeacherSubmitter")
+  classes     Class[]    @relation("ClassSubmitter")
+  videos      Video[]    @relation("VideoSubmitter")
+  reviews     Review[]
+  follows     Follow[]
+  likes       Like[]
+  studioLists StudioList[]
+
+  approvedStudios   Studio[]   @relation("StudioApprover")
+  approvedLocations Location[] @relation("LocationApprover")
+  approvedTeachers  Teacher[]  @relation("TeacherApprover")
+  approvedClasses   Class[]    @relation("ClassApprover")
+}
+
+model Studio {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  website     String?
+  logoUrl     String?
+  instagramLink      String?
+  instagramFollowers Int?      // captured at submission/refresh time when a link is provided
+  avgRating   Float?           // computed from Review rows; denormalized for read speed
+  status      ModerationStatus @default(pending)
+  createdAt   DateTime         @default(now())
+  approvedAt  DateTime?
+
+  submittedBy   User   @relation("StudioSubmitter", fields: [submittedById], references: [id])
+  submittedById String
+  approvedBy    User?  @relation("StudioApprover", fields: [approvedById], references: [id])
+  approvedById  String?
+
+  locations Location[]
+  teachers  StudioTeacher[]
+  classes   Class[]
+  reviews   Review[]
+  videos    Video[]
+  follows   Follow[]
+  likes     Like[]
+
+  @@index([status])
+}
+
+model Location {
+  id        String           @id @default(cuid())
+  label     String?          // e.g. "Downtown branch"
+  address   String
+  city      String           // fixed enum at the app layer — see 01-data-model-spec.md City List
+  country   String
+  lat       Float
+  lng       Float
+  status    ModerationStatus @default(pending)
+  createdAt DateTime         @default(now())
+  approvedAt DateTime?
+
+  studio    Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  studioId  String
+
+  submittedBy   User   @relation("LocationSubmitter", fields: [submittedById], references: [id])
+  submittedById String
+  approvedBy    User?  @relation("LocationApprover", fields: [approvedById], references: [id])
+  approvedById  String?
+
+  classes Class[]
+
+  @@index([city, status])
+}
+
+model Teacher {
+  id          String           @id @default(cuid())
+  name        String
+  bio         String?
+  photoUrl    String?
+  instagramLink      String?
+  instagramFollowers Int?
+  status      ModerationStatus @default(pending)
+  createdAt   DateTime         @default(now())
+  approvedAt  DateTime?
+
+  submittedBy   User   @relation("TeacherSubmitter", fields: [submittedById], references: [id])
+  submittedById String
+  approvedBy    User?  @relation("TeacherApprover", fields: [approvedById], references: [id])
+  approvedById  String?
+
+  studios StudioTeacher[]
+  classes Class[]
+  videos  Video[]
+  follows Follow[]
+  likes   Like[]
+}
+
+// Explicit join table (not a plain m:n) because a teacher's relationship to a
+// studio may itself need moderation/removal metadata later.
+model StudioTeacher {
+  studio    Studio  @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  studioId  String
+  teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  teacherId String
+
+  @@id([studioId, teacherId])
+}
+
+model Class {
+  id          String           @id @default(cuid())
+  title       String
+  danceStyle  String           // Hip-Hop | House | Popping | Waacking | ... (enum at app layer)
+  datetime    DateTime
+  duration    Int              // minutes
+  price       Float?
+  currency    String?
+  priceSource PriceSource?
+  bookingLink String
+  level       String           // Beginner | Intermediate | Advanced | All Levels
+  status      ModerationStatus @default(pending)
+  createdAt   DateTime         @default(now())
+  approvedAt  DateTime?
+
+  studio     Studio    @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  studioId   String
+  location   Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  locationId String
+  teacher    Teacher?  @relation(fields: [teacherId], references: [id])
+  teacherId  String?
+
+  submittedBy   User   @relation("ClassSubmitter", fields: [submittedById], references: [id])
+  submittedById String
+  approvedBy    User?  @relation("ClassApprover", fields: [approvedById], references: [id])
+  approvedById  String?
+
+  songs  ClassSong[]
+  videos Video[]
+  likes  Like[]
+
+  @@index([datetime])
+  @@index([studioId, status])
+}
+
+model Song {
+  id        String @id @default(cuid())
+  title     String
+  artist    String
+  mediaLink String?
+
+  classes ClassSong[]
+}
+
+model ClassSong {
+  class   Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+  classId String
+  song    Song  @relation(fields: [songId], references: [id], onDelete: Cascade)
+  songId  String
+
+  @@id([classId, songId])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  rating    Int      // 1-5
+  text      String?
+  createdAt DateTime @default(now())
+
+  studio   Studio @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  studioId String
+  user     User   @relation(fields: [userId], references: [id])
+  userId   String
+
+  @@unique([studioId, userId]) // one review per user per studio (edit-in-place)
+}
+
+model Video {
+  id          String       @id @default(cuid())
+  source      VideoSource
+  url         String       // Instagram link, or uploaded file URL (<=50MiB, enforced at upload time)
+  thumbnailUrl String?
+  caption     String?
+  status      VideoStatus  @default(live) // publishes immediately, unlike everything else
+  blockReason String?      // required when status = blocked; shown to the uploader
+  createdAt   DateTime     @default(now())
+
+  studio    Studio?  @relation(fields: [studioId], references: [id])
+  studioId  String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  teacherId String?
+  class     Class?   @relation(fields: [classId], references: [id])
+  classId   String?
+  song      Song?    @relation(fields: [songId], references: [id])
+  songId    String?
+
+  submittedBy   User   @relation("VideoSubmitter", fields: [submittedById], references: [id])
+  submittedById String
+
+  @@index([status])
+}
+
+// Polymorphic Follow: a user can follow a Studio or a Teacher.
+model Follow {
+  id             String   @id @default(cuid())
+  user           User     @relation(fields: [userId], references: [id])
+  userId         String
+  studio         Studio?  @relation(fields: [studioId], references: [id])
+  studioId       String?
+  teacher        Teacher? @relation(fields: [teacherId], references: [id])
+  teacherId      String?
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, studioId])
+  @@unique([userId, teacherId])
+}
+
+// Polymorphic Like: a user can like a Studio, Teacher, or Class.
+model Like {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  studio    Studio?  @relation(fields: [studioId], references: [id])
+  studioId  String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  teacherId String?
+  class     Class?   @relation(fields: [classId], references: [id])
+  classId   String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, studioId])
+  @@unique([userId, teacherId])
+  @@unique([userId, classId])
+}
+
+// User-created named collections of studios, selectable as a group in the studio filter.
+model StudioList {
+  id        String   @id @default(cuid())
+  name      String
+  studioIds String[] // simple array of Studio ids; fine at this scale, revisit if lists get huge
+  createdAt DateTime @default(now())
+
+  owner   User   @relation(fields: [ownerId], references: [id])
+  ownerId String
+}
