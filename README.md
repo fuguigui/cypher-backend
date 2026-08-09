@@ -82,14 +82,20 @@ upserts the results as Class rows, matched across runs by a stable
 
 ## What's stubbed vs. real
 
-- **The schedule scraper itself** (`src/lib/scheduleScraper.js`) is a naive
-  fallback parser, not a real solution — every studio formats their
-  schedule page differently, so there's no generic parser that reliably
-  handles all of them. It'll work on simple static pages and fail silently
-  (returns `[]`, doesn't crash) on most real sites. The module's doc comment
-  has the actual production path: fetch → strip to text → LLM-based
-  structured extraction against a strict schema, validated before any DB
-  write. That swap only touches this one file.
+- **The schedule scraper has two paths**, in `src/lib/scheduleScraper.js`.
+  The **.ics calendar feed** path is genuinely reliable — it's a real spec
+  (RFC 5545), parsed with the well-established `node-ical` package, with
+  weekly/etc. recurring classes correctly expanded into individual future
+  occurrences. Almost every booking platform (Bookwhen, Mindbody, Acuity,
+  Calendly...) publishes one of these alongside the human-facing schedule
+  page; `submit.html` nudges studio owners to paste that link instead of
+  the plain webpage. The **generic HTML fallback** (for studios without a
+  feed) is the part that's still a stopgap — every studio formats a plain
+  page differently, so there's no generic parser that reliably handles all
+  of them. It fails silently (`[]`, not a crash) rather than guessing
+  wrong. The module's doc comment has the real fix for that path: fetch →
+  strip to text → LLM-based structured extraction against a strict schema,
+  validated before any DB write. That swap only touches one function.
 - **Geocoding** (`src/lib/geocode.js`) and **price detection**
   (`src/lib/priceDetect.js`) have working call signatures but need a real
   provider key / more robust scraping before production.
